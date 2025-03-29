@@ -1,48 +1,50 @@
-const express = require('express');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
-const mysql = require('mysql2/promise');
-
+require("dotenv").config();
+const jwt = require("jsonwebtoken");
+const express = require("express");
 const router = express.Router();
-const db = mysql.createPool({
-  host: process.env.DB_HOST,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASS,
-  database: process.env.DB_NAME,
-});
 
-// Registro de usuario
-router.post('/register', async (req, res) => {
-  const { name, email, password } = req.body;
-  try {
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const [result] = await db.execute(
-      'INSERT INTO users (name, email, password) VALUES (?, ?, ?)',
-      [name, email, hashedPassword]
-    );
-    res.status(201).json({ message: 'Usuario registrado con éxito' });
-  } catch (error) {
-    res.status(500).json({ error: 'Error al registrar usuario' });
-  }
-});
+// Middleware para verificar el token
+const verifyToken = (req, res, next) => {
+    const token = req.headers["authorization"];
 
-// Login de usuario
-router.post('/login', async (req, res) => {
-  const { email, password } = req.body;
-  try {
-    const [users] = await db.execute('SELECT * FROM users WHERE email = ?', [email]);
-    if (users.length === 0) return res.status(401).json({ error: 'Credenciales inválidas' });
+    if (!token) {
+        return res.status(403).json({ message: "Token requerido" });
+    }
 
-    const user = users[0];
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) return res.status(401).json({ error: 'Credenciales inválidas' });
+    jwt.verify(token.split(" ")[1], process.env.JWT_SECRET, (err, decoded) => {
+        if (err) {
+            return res.status(401).json({ message: "Token inválido" });
+        }
 
-    const token = jwt.sign({ id: user.id, email: user.email }, process.env.JWT_SECRET, { expiresIn: '1h' });
+        req.user = decoded; // Guardar la información del usuario en la request
+        next();
+    });
+};
+
+// Ruta para iniciar sesión y generar el token
+router.post("/login", (req, res) => {
+    const { username, password } = req.body;
+
+    // Validación simple (debes reemplazar esto con una consulta a la base de datos)
+    if (username !== "admin" || password !== "123456") {
+        return res.status(401).json({ message: "Credenciales inválidas" });
+    }
+
+    // Datos del usuario para el token
+    const payload = {
+        username,
+        role: "admin",
+    };
+
+    // Generar token con expiración de 1 hora
+    const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: "1h" });
+
     res.json({ token });
-  } catch (error) {
-    res.status(500).json({ error: 'Error en el login' });
-  }
+});
+
+// Ruta protegida de ejemplo
+router.get("/protected", verifyToken, (req, res) => {
+    res.json({ message: "Accediste a una ruta protegida", user: req.user });
 });
 
 module.exports = router;
-
